@@ -6,11 +6,15 @@ Load,loads,"Loads represent a demand at the bus they are connected to (e.g. PQ p
 Link,links,"Links are used for controllable directed flows between two or more buses with arbitrary energy carriers (e.g. HVDC links, converters, conversions between carriers).",controllable_branch
 Store,stores,"Stores provide inter-temporal storage with an energy capacity. Charging and discharging power are unlimited unless coupled to the energy capacity via `max_hours`.",controllable_one_port
 StorageUnit,storage_units,"Storage units enable inter-temporal energy shifting with fixed nominal-energy-to-nominal-power ratio.",controllable_one_port
+SynchronousCondenser,synchronous_condensers,"Synchronous machines without prime mover providing reactive power, inertia and short-circuit power.",controllable_one_port
 Line,lines,"Lines include distribution and transmission lines, overhead lines and cables.",passive_branch
 LineType,line_types,"Standard line types with per length values for impedances.",standard_type
 Process,processes,"Processes are used for controllable conversion processes involving two or more buses with arbitrary energy carriers (e.g. conversions between carriers).",controllable_branch
 Transformer,transformers,"2-winding transformer.",passive_branch
 TransformerType,transformer_types,"Standard 2-winding transformer types.",standard_type
+Transformer3W,transformers3w,"3-winding transformer, modelled as a star equivalent of three 2-winding transformers.",
+Transformer3WType,transformer3w_types,"Standard 3-winding transformer types.",standard_type
+CircuitBreaker,circuit_breakers,"Circuit breakers opening or closing lines and transformers, with optional optimal switching.",
 ShuntImpedance,shunt_impedances,"Shunt with voltage-dependent admittance.",passive_one_port
 GlobalConstraint,global_constraints,"Constraints in the optimisation problem that apply to multiple components at once."
 Shape,shapes,"Geographical shapes of network components.",shape

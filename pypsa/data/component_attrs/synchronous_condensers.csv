@@ -1,0 +1,35 @@
+attribute,type,unit,default,description,status
+name,string,n/a,n/a,Unique name,Input (required)
+bus,string,n/a,n/a,Name of bus to which the synchronous condenser is attached.,Input (required)
+control,string,n/a,PV,"Q,V control strategy for power flow, must be ""PQ"" or ""PV"". With ""PV"" the condenser controls the voltage magnitude of its bus to `v_mag_pu_set` of the bus and its reactive power follows from the power flow. Only relevant for ""AC"" buses.",Input (optional)
+carrier,string,n/a,n/a,Carrier of the synchronous condenser.,Input (optional)
+s_nom,float,MVA,0,Nominal apparent power. Ignored if `s_nom_extendable=True`.,Input (optional)
+s_nom_mod,float,MVA,0,Nominal apparent power of a module (unit size). Introduces integer variables if set.,Input (optional)
+s_nom_extendable,boolean,n/a,False,Switch to allow capacity `s_nom` to be extended in optimization.,Input (optional)
+s_nom_min,float,MVA,0,"If `s_nom` is extendable in optimization, set its minimum value.",Input (optional)
+s_nom_max,float,MVA,inf,"If `s_nom` is extendable in optimization, set its maximum value.",Input (optional)
+s_nom_set,float,MVA,n/a,"If `s_nom` is extendable in optimization, set its value.",Input (optional)
+s_min_pu,static or series,per unit,0.,Minimum online capacity `s` for each snapshot per unit of `s_nom` in the optimization.,Input (optional)
+s_max_pu,static or series,per unit,1,Maximum online capacity `s` for each snapshot per unit of `s_nom` in the optimization (e.g. availability).,Input (optional)
+s_set,static or series,MVA,n/a,Online capacity set point (for optimization).,Input (optional)
+p_set,static or series,MW,0.,"Active power set point for power flow, negative for the consumption of losses. Set by `n.optimize.fix_optimal_dispatch()` to the optimised `p`.",Input (optional)
+q_set,static or series,MVar,0.,Reactive power set point for power flow if `control` is `PQ` (positive if generating).,Input (optional)
+sign,float,n/a,1,"Sign denoting the orientation of the dispatch variable (positive for generation, negative for consumption).",Input (optional)
+loss,static or series,per unit,0.,Active power losses per unit of online capacity `s` drawn from the bus in optimization (e.g. 0.01).,Input (optional)
+inertia_constant,float,s,0.,"Inertia constant H (MWs/MVA). The online capacity contributes `inertia_constant * s` to global constraints of type `inertia`.",Input (optional)
+short_circuit_factor,float,per unit,0.,"Short-circuit power per MVA of online capacity, approximately the inverse of the subtransient reactance (1/x''_d). The online capacity contributes `short_circuit_factor * s` to global constraints of type `short_circuit_power`.",Input (optional)
+marginal_cost,static or series,currency/MVAh,0.,Cost of keeping 1 MVA online for one hour.,Input (optional)
+active,boolean,n/a,True,"Whether to consider the component in optimization or not",Input (optional)
+build_year,int,year,0,Build year of the synchronous condenser.,Input (optional)
+lifetime,float,years,inf,Lifetime of the synchronous condenser.,Input (optional)
+capital_cost,float,currency/MVA,0,"Fixed period costs of extending `s_nom` by 1 MVA (e.g. annuitized investment costs). Used directly unless `overnight_cost` is specified.",Input (optional)
+overnight_cost,float,currency/MVA,NaN,"Overnight (upfront) investment cost per MVA. If specified, PyPSA calculates annuity using `discount_rate` and `lifetime`. Takes precedence over `capital_cost`.",Input (optional)
+discount_rate,float,per unit,NaN,"Discount rate for annuity calculation when using `overnight_cost`. Supports 0% rate (simple depreciation).",Input (optional)
+fom_cost,float,currency/MVA,0,"Fixed period operation and maintenance costs per MVA, added to annuitized investment cost.",Input (optional)
+s,series,MVA,0.,Online capacity in the optimization.,Output
+p,series,MW,0.,Active power at bus (positive if net generation; negative for losses).,Output
+q,series,MVar,0.,Reactive power (positive if net generation).,Output
+s_nom_opt,float,MVA,0.,Optimised nominal capacity.,Output
+mu_upper,series,currency/MVAh,n/a,Shadow price of upper `s_nom` limit,Output
+mu_lower,series,currency/MVAh,n/a,Shadow price of lower `s_nom` limit,Output
+mu_s_set,series,currency/MVAh,n/a,Shadow price of fixed online capacity `s_set`,Output

@@ -1,0 +1,45 @@
+attribute,type,unit,default,description,status
+name,string,n/a,n/a,Unique name,Input (required)
+bus0,string,n/a,n/a,Name of bus attached to winding 0 (typically high voltage).,Input (required)
+bus1,string,n/a,n/a,Name of bus attached to winding 1 (typically medium voltage).,Input (required)
+bus2,string,n/a,n/a,Name of bus attached to winding 2 (typically low voltage).,Input (required)
+type,string,n/a,n/a,"Name of 3-winding transformer standard type. If this is not an empty string """", the impedance parameters are taken from the standard type. This will override any values set in `r01`, `x01`, `r12`, `x12`, `r02`, `x02`, `g`, `b`, `s_nom0`, `s_nom1`, `s_nom2`, `tap_ratio`, `tap_side`, `phase_shift1` and `phase_shift2`. If the string is empty, values manually provided are taken.",Input (optional)
+model,string,n/a,t,"Model used for the admittance matrix of the three 2-winding legs of the star equivalent; can be ""t"" or ""pi""; defaults to ""t"" following physics and DIgSILENT PowerFactory",Input (required)
+s_nom0,float,MVA,0,"Rated apparent power of winding 0. Also the base power for the per unit impedances `r01`, `x01`, `r12`, `x12`, `r02`, `x02`, `g` and `b`. Ignored if type defined.",Input (required)
+s_nom1,float,MVA,0,Rated apparent power of winding 1. Ignored if type defined.,Input (required)
+s_nom2,float,MVA,0,Rated apparent power of winding 2. Ignored if type defined.,Input (required)
+r01,float,per unit,0,"Series resistance between windings 0 and 1 measured with winding 2 open (per unit, using `s_nom0` as base power). Ignored if type defined.",Input (required)
+x01,float,per unit,0,"Series reactance between windings 0 and 1 measured with winding 2 open (per unit, using `s_nom0` as base power). Ignored if type defined.",Input (required)
+r12,float,per unit,0,"Series resistance between windings 1 and 2 measured with winding 0 open (per unit, using `s_nom0` as base power). Ignored if type defined.",Input (required)
+x12,float,per unit,0,"Series reactance between windings 1 and 2 measured with winding 0 open (per unit, using `s_nom0` as base power). Ignored if type defined.",Input (required)
+r02,float,per unit,0,"Series resistance between windings 0 and 2 measured with winding 1 open (per unit, using `s_nom0` as base power). Ignored if type defined.",Input (required)
+x02,float,per unit,0,"Series reactance between windings 0 and 2 measured with winding 1 open (per unit, using `s_nom0` as base power). Ignored if type defined.",Input (required)
+g,float,per unit,0,"Magnetising shunt conductivity (per unit, using `s_nom0` as base power), placed on the winding 0 leg of the star equivalent. Ignored if type defined.",Input (optional)
+b,float,per unit,0,"Magnetising shunt susceptance (per unit, using `s_nom0` as base power), placed on the winding 0 leg of the star equivalent. Ignored if type defined.",Input (optional)
+tap_ratio,float,per unit,1,Ratio of per unit voltages at the winding given by `tap_side`. Ignored if type defined.,Input (optional)
+tap_side,int,n/a,0,"Winding at which the tap changer is modelled (must be 0, 1 or 2, defaults to 0). Ignored if type defined.",Input (optional)
+tap_position,int,n/a,0,"If the transformer has a `type`, the absolute tap position on the same scale as `tap_min`/`tap_neutral`/`tap_max`. The nominal ratio (`tap_ratio` = 1) is obtained when `tap_position == tap_neutral`.",Input (optional)
+phase_shift1,float,Degrees,0,"Voltage phase angle shift of winding 1 relative to winding 0. Same sign convention as `Transformer.phase_shift`. Ignored if type defined.",Input (optional)
+phase_shift2,float,Degrees,0,"Voltage phase angle shift of winding 2 relative to winding 0. Same sign convention as `Transformer.phase_shift`. Ignored if type defined.",Input (optional)
+s_nom_extendable,boolean,n/a,False,"Switch to allow the transformer to be extended in optimisation as one unit, i.e. the ratings of all windings scale together in the ratio `s_nom0`:`s_nom1`:`s_nom2`.",Input (optional)
+s_nom_min,float,MVA,0,"If `s_nom_extendable=True`, set the minimum value of `s_nom0_opt` (rating of winding 0).",Input (optional)
+s_nom_max,float,MVA,inf,"If `s_nom_extendable=True`, set the maximum value of `s_nom0_opt` (rating of winding 0).",Input (optional)
+s_nom_set,float,MVA,n/a,"If `s_nom_extendable=True`, set the value of `s_nom0_opt` (rating of winding 0).",Input (optional)
+s_nom_mod,float,MVA,0,"Modular unit size of the expansion of winding 0. Introduces integer variables.",Input (optional)
+capital_cost,float,currency/MVA,0,"Fixed period costs of extending `s_nom0` by 1 MVA, including the corresponding extension of windings 1 and 2 (e.g. annuitized investment costs). Used directly unless `overnight_cost` is specified.",Input (optional)
+overnight_cost,float,currency/MVA,NaN,"Overnight (upfront) investment cost per MVA of `s_nom0`. If specified, PyPSA calculates annuity using `discount_rate` and `lifetime`. Takes precedence over `capital_cost`.",Input (optional)
+discount_rate,float,per unit,NaN,"Discount rate for annuity calculation when using `overnight_cost`. Supports 0% rate (simple depreciation).",Input (optional)
+fom_cost,float,currency/MVA,0,"Fixed period operation and maintenance costs per MVA of `s_nom0`, added to annuitized investment cost.",Input (optional)
+build_year,int,year,0,Build year of the transformer.,Input (optional)
+lifetime,float,years,inf,Lifetime of the transformer.,Input (optional)
+active,boolean,n/a,True,"Whether to consider the component in the star equivalent created by `n.c.transformers3w.expand()`. Inactive 3-winding transformers create inactive legs.",Input (optional)
+star_bus,string,n/a,n/a,"Name of the auxiliary star bus created by `n.c.transformers3w.expand()`. Do not set by hand.",Output
+s_nom0_opt,float,MVA,0,Optimised rating of winding 0.,Output
+s_nom1_opt,float,MVA,0,Optimised rating of winding 1.,Output
+s_nom2_opt,float,MVA,0,Optimised rating of winding 2.,Output
+p0,series,MW,0,Active power at `bus0` (positive if branch is withdrawing power from `bus0`).,Output
+q0,series,MVar,0,Reactive power at `bus0` (positive if branch is withdrawing power from `bus0`).,Output
+p1,series,MW,0,Active power at `bus1` (positive if branch is withdrawing power from `bus1`).,Output
+q1,series,MVar,0,Reactive power at `bus1` (positive if branch is withdrawing power from `bus1`).,Output
+p2,series,MW,0,Active power at `bus2` (positive if branch is withdrawing power from `bus2`).,Output
+q2,series,MVar,0,Reactive power at `bus2` (positive if branch is withdrawing power from `bus2`).,Output

@@ -1340,7 +1340,8 @@ def define_nodal_balance_constraints(
     while power withdrawals include loads, storage charging, and outgoing branch flows.
 
     Applies to Generator (p), Line (s), Transformer (s), Link (p), Process (p),
-    Store (p), Load (p), StorageUnit (p_dispatch, p_store).
+    Store (p), Load (p), StorageUnit (p_dispatch, p_store) and SynchronousCondenser
+    (losses `-loss * s`).
 
     Notes
     -----
@@ -1504,6 +1505,29 @@ def define_nodal_balance_constraints(
                         expr = expr * coeff.sel(name=group_names)
                     exprs.append(_groupby_bus(expr, group_cbuses))
 
+    # synchronous condensers draw their losses in proportion to the online capacity
+    syncons = n.c.synchronous_condensers
+    if not syncons.empty and "SynchronousCondenser-s" in m.variables:
+        names = syncons.active_assets
+        loss = (
+            syncons.da.loss.where(syncons.da.active)
+            .sel(snapshot=sns)
+            .sel(name=names)
+            .fillna(0)
+        )
+        sign = syncons.da.sign.sel(name=names)
+        cbuses = syncons._as_xarray("bus").sel(name=names)
+        if n.has_scenarios:
+            cbuses = cbuses.isel(scenario=0, drop=True)
+        mask = pd.Index(cbuses.data).isin(buses)
+        if mask.any() and (loss != 0).any():
+            cbuses = cbuses[mask].rename("Bus")
+            sel = cbuses.coords["name"].values
+            expr = m["SynchronousCondenser-s"].sel(name=sel) * (
+                -loss.sel(name=sel) * sign.sel(name=sel)
+            )
+            exprs.append(_groupby_bus(expr, cbuses))
+
     lhs = merge(exprs, join="outer").reindex(name=buses)
 
     # Prepare the RHS
@@ -1662,6 +1686,13 @@ def define_kirchhoff_voltage_constraints(
                 C = DataArray(C_trafos.loc[names])
                 sel = angle.sel(name=names, snapshot=snapshots)
                 lhs_period = lhs_period + (sel @ C) * deg_to_rad * 1e5
+
+        # open circuit breakers relax the cycle constraints of their branches
+        breaker_term = _circuit_breaker_kvl_term(
+            n, period, snapshots, cycle_basis_method
+        )
+        if breaker_term is not None:
+            lhs_period = lhs_period + breaker_term
 
         lhs_parts.append(lhs_period)
 
@@ -2795,3 +2826,73 @@ def define_total_supply_constraints(
         energy = (p * eh).sum(dim="snapshot")
         mask = rhs != default
         m.add_constraints(energy, sign, rhs, name=f"{c.name}-{attr}", mask=mask)
+
+
+def define_transformer3w_capacity_coupling(n: Network) -> None:
+    r"""Couple the ratings of the legs of extendable 3-winding transformers.
+
+    An extendable [pypsa.components.Transformers3W][] is expanded as one unit, so the
+    optimised ratings of the legs attached to windings 1 and 2 follow the rating of
+    the leg attached to winding 0 in the ratio of their nominal ratings:
+
+    $$s_{nom,i}^{opt} = \frac{s_{nom,i}}{s_{nom,0}} s_{nom,0}^{opt} \quad i \in \{1, 2\}$$
+
+    Parameters
+    ----------
+    n : pypsa.Network
+        Network instance with an optimisation model.
+
+    """
+    # Avoid circular import
+    from pypsa.components._types.transformers3w import (  # noqa: PLC0415
+        _expanded_transformers3w,
+        leg_names,
+    )
+
+    if "Transformer-s_nom" not in n.model.variables:
+        return
+    c = n.c.transformers3w
+    expanded = _expanded_transformers3w(n)
+    if expanded.empty:
+        return
+
+    s_nom = n.model["Transformer-s_nom"]
+    ext_legs = s_nom.indexes["name"]
+    extendable = c.static.loc[expanded, "s_nom_extendable"].to_numpy(dtype=bool)
+    legs_ext = np.all([names.isin(ext_legs) for names in leg_names(expanded)], axis=0)
+    coupled = expanded[extendable & legs_ext]
+    if coupled.empty:
+        return
+
+    names = leg_names(coupled)
+    leg_s_nom = n.c.transformers.static.s_nom
+    leg0 = s_nom.sel(name=names[0].to_list()).assign_coords(name=coupled.to_numpy())
+    for i in (1, 2):
+        ratio = pd.Series(
+            leg_s_nom.loc[names[i]].to_numpy() / leg_s_nom.loc[names[0]].to_numpy(),
+            index=coupled,
+        )
+        leg = s_nom.sel(name=names[i].to_list()).assign_coords(name=coupled.to_numpy())
+        n.model.add_constraints(
+            leg - ratio * leg0 == 0, name=f"Transformer3W-s_nom{i}-coupling"
+        )
+
+
+def _circuit_breaker_kvl_term(
+    n: Network, period: Any, snapshots: pd.Index, cycle_basis_method: str
+) -> Any:
+    """KVL relaxation by open circuit breakers for one investment period."""
+    # Avoid circular import
+    from pypsa.optimization.grid_controls import (  # noqa: PLC0415
+        BREAKER_SLACK,
+        circuit_breaker_kvl_term,
+    )
+
+    if BREAKER_SLACK not in n.model.variables:
+        return None
+    c_plain = n.cycle_matrix(
+        investment_period=period,
+        apply_weights=False,
+        cycle_basis_method=cycle_basis_method,
+    )
+    return circuit_breaker_kvl_term(n, c_plain, snapshots)

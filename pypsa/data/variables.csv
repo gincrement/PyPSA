@@ -38,3 +38,6 @@ StorageUnit,state_of_charge,False,False,False,True,False,False,False,False
 StorageUnit,p_nom,False,False,False,False,False,False,True,False
 StorageUnit,n_mod,False,False,False,False,False,False,False,True
 StorageUnit,spill,False,False,True,False,False,False,False,True
+SynchronousCondenser,s,True,False,False,False,False,False,False,False
+SynchronousCondenser,s_nom,False,False,False,False,False,False,True,False
+SynchronousCondenser,n_mod,False,False,False,False,False,False,False,True

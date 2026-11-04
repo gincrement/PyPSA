@@ -25,6 +25,11 @@ from pypsa.common import (
     UnexpectedError,
     as_index,
 )
+from pypsa.components._types.transformers3w import (
+    _assign_transformer3w_capacities,
+    _assign_transformer3w_results,
+    _fix_optimal_transformer3w_capacities,
+)
 from pypsa.components.array import _from_xarray
 from pypsa.components.common import as_components
 from pypsa.consistency import (
@@ -57,17 +62,28 @@ from pypsa.optimization.constraints import (
     define_store_cycle_constraints,
     define_tangent_loss_constraints,
     define_total_supply_constraints,
+    define_transformer3w_capacity_coupling,
     define_voltage_angle_constraints,
 )
 from pypsa.optimization.expressions import StatisticExpressionsAccessor
 from pypsa.optimization.global_constraints import (
+    assign_system_strength_duals,
     define_growth_limit,
     define_nominal_constraints_per_bus_carrier,
     define_operational_limit,
     define_primary_energy_limit,
+    define_system_strength_requirements,
     define_tech_capacity_expansion_limit,
     define_transmission_expansion_cost_limit,
     define_transmission_volume_expansion_limit,
+)
+from pypsa.optimization.grid_controls import (
+    assign_circuit_breaker_results,
+    circuit_breaker_cost_terms,
+    define_circuit_breaker_constraints,
+    define_circuit_breaker_variables,
+    define_phase_shift_cost_variables,
+    phase_shift_cost_terms,
 )
 from pypsa.optimization.piecewise import PiecewiseOptions, define_piecewise
 from pypsa.optimization.variables import (
@@ -455,6 +471,17 @@ def define_objective(
 
         var = m[f"{c.name}-{attr}"].sel(name=com_i)
         opex_terms.append((var * cost).sum(dim=["name", "snapshot"]))
+
+    # phase-shifting transformers and circuit breakers
+    opex_terms.extend(phase_shift_cost_terms(n, sns, weight))
+    breaker_capex, breaker_opex = circuit_breaker_cost_terms(
+        n,
+        sns,
+        event_weight if n._multi_invest else 1,
+        float(period_weighting.sum()) if n._multi_invest else 1.0,
+    )
+    capex_terms.extend(breaker_capex)
+    opex_terms.extend(breaker_opex)
 
     if not (capex_terms or opex_terms):
         msg = (
@@ -857,6 +884,8 @@ class OptimizationAccessor(OptimizationAbstractMixin):
         for c in ("StorageUnit", "Store"):
             define_spillage_variables(n, sns, c)
         define_phase_shift_variables(n, sns)
+        define_phase_shift_cost_variables(n, sns)
+        define_circuit_breaker_variables(n, sns)
 
         # CVaR auxiliary variables (only when stochastic + risk preference is set)
         define_cvar_variables(n)
@@ -873,6 +902,7 @@ class OptimizationAccessor(OptimizationAbstractMixin):
             define_committability_variables_constraints_with_variable_upper_limit(
                 n, sns, c, attr
             )
+        define_transformer3w_capacity_coupling(n)
 
         for c, attr in lookup.query("not nominal and not handle_separately").index:
             define_maintenance_constraints(n, sns, c)
@@ -916,6 +946,7 @@ class OptimizationAccessor(OptimizationAbstractMixin):
 
         define_kirchhoff_voltage_constraints(n, sns, cycle_basis_method)
         define_voltage_angle_constraints(n, sns)
+        define_circuit_breaker_constraints(n, sns)
         define_storage_unit_constraints(n, sns)
         define_store_constraints(n, sns)
         define_store_cycle_constraints(n, sns)
@@ -967,6 +998,7 @@ class OptimizationAccessor(OptimizationAbstractMixin):
         define_operational_limit(n, sns)
         define_nominal_constraints_per_bus_carrier(n, sns)
         define_growth_limit(n, sns)
+        define_system_strength_requirements(n, sns)
 
         define_objective(n, sns, include_objective_constant, piecewise_opts)
 
@@ -1091,7 +1123,11 @@ class OptimizationAccessor(OptimizationAbstractMixin):
             _c_name, attr = name.split("-", 1)
 
             # Skip auxiliary McCormick linearization variables
-            if attr in ("maintenance_capacity", "maintenance_status"):
+            if attr in (
+                "maintenance_capacity",
+                "maintenance_status",
+                "phase_shift_abs",
+            ):
                 continue
 
             if not hasattr(n.c, _c_name):
@@ -1174,6 +1210,13 @@ class OptimizationAccessor(OptimizationAbstractMixin):
                 fix_i = pd.MultiIndex.from_product([n.scenarios, fix_i])
             if not fix_i.empty:
                 c.static.loc[fix_i, f"{attr}_opt"] = c.static.loc[fix_i, attr]
+
+        # Active power of synchronous condensers from their online capacity
+        syncons = n.c.synchronous_condensers
+        if not syncons.empty and "s" in syncons.dynamic and not syncons.dynamic.s.empty:
+            loss = n.get_switchable_as_dense("SynchronousCondenser", "loss").loc[sns]
+            s = syncons.dynamic.s.loc[sns]
+            _set_dynamic_data(n, "SynchronousCondenser", "p", -(s * loss[s.columns]))
 
         # Recalculate storageunit net dispatch
         storage_units = n.c.storage_units
@@ -1336,12 +1379,19 @@ class OptimizationAccessor(OptimizationAbstractMixin):
             n.c.lines.dynamic.p0 += losses / 2
             n.c.lines.dynamic.p1 += losses / 2
 
+        # map star equivalent legs back to 3-winding transformers
+        _assign_transformer3w_results(n)
+        assign_circuit_breaker_results(n, sns)
+        assign_system_strength_duals(n, sns)
+        _assign_transformer3w_capacities(n)
+
         # recalculate injection
         ca = [
             ("Generator", "p", "bus"),
             ("Store", "p", "bus"),
             ("Load", "p", "bus"),
             ("StorageUnit", "p", "bus"),
+            ("SynchronousCondenser", "p", "bus"),
         ]
         for c in n.controllable_branch_components:
             ca.extend([(c, f"p{i}", f"bus{i}") for i in n.c[c].ports])
@@ -1413,6 +1463,7 @@ class OptimizationAccessor(OptimizationAbstractMixin):
             ext_b = c.static.index.get_level_values("name").isin(ext_i)
             c.static.loc[ext_b, attr] = c.static.loc[ext_b, attr + "_opt"]
             c.static[attr + "_extendable"] = False
+        _fix_optimal_transformer3w_capacities(n)
 
     def fix_optimal_dispatch(self) -> None:
         """Fix dispatch of all assets to optimized values.
@@ -1421,9 +1472,12 @@ class OptimizationAccessor(OptimizationAbstractMixin):
         starting point for power flow calculation (`Network.pf`).
         """
         for c in self._n.one_port_components:
-            self._n.components[c].dynamic.p_set = self._n.components[c].dynamic.p
+            self._n.components[c].dynamic.p_set = self._n.components[c].dynamic.p.copy()
         for c in self._n.controllable_branch_components:
-            self._n.components[c].dynamic.p_set = self._n.components[c].dynamic.p0
+            self._n.components[c].dynamic.p_set = self._n.components[
+                c
+            ].dynamic.p0.copy()
+        _fix_optimal_grid_controls(self._n)
 
     def add_load_shedding(
         self,
@@ -1474,3 +1528,29 @@ class OptimizationAccessor(OptimizationAbstractMixin):
             marginal_cost=marginal_cost,
             p_nom=p_nom,
         )
+
+
+def _fix_optimal_grid_controls(n: Network) -> None:
+    """Fix optimised phase shifts and circuit breaker status for power flow."""
+    transformers = n.c.transformers
+    opt = transformers.dynamic.get("phase_shift_opt", pd.DataFrame())
+    if not transformers.empty and not opt.empty:
+        static = transformers.static
+        varying = static.index[static.phase_shift_min < static.phase_shift_max]
+        varying = varying.intersection(opt.columns)
+        if not varying.empty:
+            phase_shift = n.get_switchable_as_dense("Transformer", "phase_shift")
+            phase_shift[varying] = opt[varying].fillna(phase_shift[varying])
+            transformers.dynamic["phase_shift"] = phase_shift
+            # keep the fixed shift in subsequent optimisations
+            static.loc[varying, ["phase_shift_min", "phase_shift_max"]] = 0.0
+
+    breakers = n.c.circuit_breakers
+    opt = breakers.dynamic.get("status_opt", pd.DataFrame())
+    if not breakers.empty and not opt.empty:
+        status = n.get_switchable_as_dense("CircuitBreaker", "status")
+        cols = opt.columns.intersection(status.columns)
+        status[cols] = opt[cols].fillna(status[cols])
+        breakers.dynamic["status"] = status
+        breakers.static["switchable"] = False
+        breakers.static["extendable"] = False

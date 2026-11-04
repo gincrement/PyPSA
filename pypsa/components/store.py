@@ -18,6 +18,7 @@ from pypsa.deprecations import COMPONENT_ALIAS_DICT
 if TYPE_CHECKING:
     from pypsa.components._types.buses import Buses
     from pypsa.components._types.carriers import Carriers
+    from pypsa.components._types.circuit_breakers import CircuitBreakers
     from pypsa.components._types.generators import Generators
     from pypsa.components._types.global_constraints import GlobalConstraints
     from pypsa.components._types.line_types import LineTypes
@@ -30,8 +31,13 @@ if TYPE_CHECKING:
     from pypsa.components._types.storage_units import StorageUnits
     from pypsa.components._types.stores import Stores
     from pypsa.components._types.sub_networks import SubNetworks
+    from pypsa.components._types.synchronous_condensers import (
+        SynchronousCondensers,
+    )
+    from pypsa.components._types.transformer3w_types import Transformer3WTypes
     from pypsa.components._types.transformer_types import TransformerTypes
     from pypsa.components._types.transformers import Transformers
+    from pypsa.components._types.transformers3w import Transformers3W
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +47,7 @@ class ComponentsStore(dict):
 
     buses: Buses
     carriers: Carriers
+    circuit_breakers: CircuitBreakers
     generators: Generators
     global_constraints: GlobalConstraints
     line_types: LineTypes
@@ -53,8 +60,11 @@ class ComponentsStore(dict):
     storage_units: StorageUnits
     stores: Stores
     sub_networks: SubNetworks
+    synchronous_condensers: SynchronousCondensers
     transformer_types: TransformerTypes
     transformers: Transformers
+    transformers3w: Transformers3W
+    transformer3w_types: Transformer3WTypes
 
     def __repr__(self) -> str:
         """Get representation of component store.
@@ -71,11 +81,15 @@ class ComponentsStore(dict):
         - 4 'Link' Components
         - 0 'Store' Components
         - 0 'StorageUnit' Components
+        - 0 'SynchronousCondenser' Components
         - 7 'Line' Components
         - 59 'LineType' Components
         - 0 'Process' Components
         - 0 'Transformer' Components
         - 14 'TransformerType' Components
+        - 0 'Transformer3W' Components
+        - 2 'Transformer3WType' Components
+        - 0 'CircuitBreaker' Components
         - 0 'ShuntImpedance' Components
         - 1 'GlobalConstraint' Components
         - 0 'Shape' Components
@@ -110,11 +124,15 @@ class ComponentsStore(dict):
         - 4 'Link' Components
         - 0 'Store' Components
         - 0 'StorageUnit' Components
+        - 0 'SynchronousCondenser' Components
         - 7 'Line' Components
         - 59 'LineType' Components
         - 0 'Process' Components
         - 0 'Transformer' Components
         - 14 'TransformerType' Components
+        - 0 'Transformer3W' Components
+        - 2 'Transformer3WType' Components
+        - 0 'CircuitBreaker' Components
         - 0 'ShuntImpedance' Components
         - 1 'GlobalConstraint' Components
         - 0 'Shape' Components

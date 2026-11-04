@@ -46,10 +46,14 @@ nav:
       - Process: user-guide/components/processes.md
       - Store: user-guide/components/stores.md
       - Storage Unit: user-guide/components/storage-units.md
+      - Synchronous Condenser: user-guide/components/synchronous-condensers.md
       - Line: user-guide/components/lines.md
       - Line Types: user-guide/components/line-types.md
       - Transformer: user-guide/components/transformers.md
       - Transformer Types: user-guide/components/transformer-types.md
+      - 3-Winding Transformer: user-guide/components/transformers3w.md
+      - 3-Winding Transformer Types: user-guide/components/transformer3w-types.md
+      - Circuit Breaker: user-guide/components/circuit-breakers.md
       - Shunt Impedance: user-guide/components/shunt-impedances.md
       - Global Constraints: user-guide/components/global-constraints.md
       - Shapes: user-guide/components/shapes.md
@@ -173,10 +177,13 @@ nav:
       - Generator: api/components/types/generators.md
       - Store: api/components/types/stores.md
       - StorageUnit: api/components/types/storage-units.md
+      - Synchronous Condenser: api/components/types/synchronous-condensers.md
       - Load: api/components/types/loads.md
       - Shunt Impedance: api/components/types/shunt-impedances.md
       - Line: api/components/types/lines.md
       - Transformer: api/components/types/transformers.md
+      - 3-Winding Transformer: api/components/types/transformers3w.md
+      - Circuit Breaker: api/components/types/circuit-breakers.md
       - Link: api/components/types/links.md
       - Process: api/components/types/processes.md
       - Shapes: api/components/types/shapes.md
@@ -367,6 +374,9 @@ plugins:
               - pypsa.components._types.stores.Stores.add
               - pypsa.components._types.sub_networks.SubNetworks.add
               - pypsa.components._types.transformers.Transformers.add
+              - pypsa.components._types.transformers3w.Transformers3W.add
+              - pypsa.components._types.synchronous_condensers.SynchronousCondensers.add
+              - pypsa.components._types.circuit_breakers.CircuitBreakers.add
               # Plot Accessor
               - pypsa.plot.accessor.PlotAccessor.explore
               - pypsa.plot.accessor.PlotAccessor.iplot

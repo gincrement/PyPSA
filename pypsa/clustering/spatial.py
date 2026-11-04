@@ -335,6 +335,26 @@ def aggregateoneport(
     return static, dynamic
 
 
+def _drop_transformer3w_star_buses(n: Network, busmap: dict | Series) -> dict | Series:
+    """Remove the star buses of 3-winding transformers from the busmap.
+
+    Spatial clustering does not carry over transformers, so 3-winding transformers
+    and their star equivalents are dropped. Removing the star buses from the busmap
+    keeps them from turning into isolated clustered buses or from shifting the
+    aggregated attributes of the cluster they are mapped to.
+    """
+    c = n.c.transformers3w
+    if c.static.empty:
+        return busmap
+    logger.warning(
+        "Spatial clustering does not carry over transformers. The 3-winding "
+        "transformer(s) %s and their star equivalents are dropped.",
+        ", ".join(c.static.index.astype(str)),
+    )
+    star_buses = pd.Index(c.static.star_bus[c.static.star_bus != ""])
+    return pd.Series(busmap).drop(star_buses, errors="ignore")
+
+
 def aggregatebuses(
     n: Network, busmap: dict, custom_strategies: dict | None = None
 ) -> pd.DataFrame:
@@ -933,8 +953,17 @@ class SpatialClusteringMixin:
         aggregate_generators_buses: Iterable | None = None,
         custom_line_groupers: list | None = None,
     ) -> Clustering:
-        """Get a clustering result from a busmap."""
+        """Get a clustering result from a busmap.
+
+        Transformers are not carried over to the clustered network. This includes
+        3-winding transformers together with their star equivalent, i.e. the star
+        buses and legs created by
+        [`expand`][pypsa.components.Transformers3W.expand].
+        """
         n = self._n
+        busmap_input = busmap
+        # a Series behaves like the busmap dict in the aggregation below
+        busmap = _drop_transformer3w_star_buses(n, busmap)  # type: ignore[assignment]
 
         if bus_strategies is None:
             bus_strategies = {}
@@ -1076,7 +1105,7 @@ class SpatialClusteringMixin:
 
         clustered.determine_network_topology()
 
-        return Clustering(clustered, busmap, linemap)
+        return Clustering(clustered, busmap_input, linemap)
 
 
 ################

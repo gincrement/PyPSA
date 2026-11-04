@@ -881,3 +881,135 @@ def define_transmission_expansion_cost_limit(n: Network, sns: pd.Index) -> None:
     _define_transmission_expansion_limit(
         n, sns, "transmission_expansion_cost_limit", cost
     )
+
+
+#: Global constraint types for system strength and the contributing attribute of
+#: synchronous condensers (and column of `n.carriers` for generators).
+SYSTEM_STRENGTH_TYPES = {
+    "inertia": "inertia_constant",
+    "short_circuit_power": "short_circuit_factor",
+}
+
+
+def define_system_strength_requirements(n: Network, sns: pd.Index) -> None:
+    r"""Define minimum inertia and short-circuit power requirements.
+
+    Applies to global constraints of type `inertia` and `short_circuit_power`. In
+    each snapshot, the contributions of synchronous condensers (their online
+    capacity `s` times `inertia_constant` or `short_circuit_factor`) and of
+    generators (their dispatch `p` times the column `inertia_constant` or
+    `short_circuit_factor` of `n.carriers`, if present) must satisfy
+
+    $$\sum_{k} h_k s_{k,t} + \sum_{g} h_{c(g)} p_{g,t} \quad \text{sense} \quad
+    \text{constant}$$
+
+    If `bus` is set, only components at that bus contribute; otherwise all buses
+    do. If `investment_period` is set, the constraint only applies to the
+    snapshots of that period.
+
+    Parameters
+    ----------
+    n : pypsa.Network
+        Network instance.
+    sns : pandas.Index
+        Snapshots.
+
+    """
+    glcs = n.c.global_constraints.static
+    glcs = glcs[glcs.type.isin(SYSTEM_STRENGTH_TYPES)]
+    if glcs.empty:
+        return
+    if n.has_scenarios:
+        msg = (
+            "Global constraints of type `inertia` and `short_circuit_power` are not "
+            "yet supported for stochastic networks."
+        )
+        raise NotImplementedError(msg)
+
+    m = n.model
+    for name, glc in glcs.iterrows():
+        attr = SYSTEM_STRENGTH_TYPES[glc.type]
+        snapshots = sns
+        if not np.isnan(glc.investment_period):
+            if not isinstance(sns, pd.MultiIndex):
+                msg = (
+                    f"Global constraint {name} has an `investment_period` but the "
+                    "network has no investment periods."
+                )
+                raise ValueError(msg)
+            snapshots = sns[sns.get_level_values(0) == glc.investment_period]
+            if snapshots.empty:
+                continue
+
+        terms = []
+        contributors = [("SynchronousCondenser", "s", None), ("Generator", "p", attr)]
+        for c_name, var_attr, carrier_attr in contributors:
+            c = n.c[c_name]
+            var_name = f"{c_name}-{var_attr}"
+            if c.static.empty or var_name not in m.variables:
+                continue
+            names = c.active_assets
+            static = c.static.loc[names]
+            if glc.bus:
+                static = static[static.bus == glc.bus]
+            if carrier_attr is None:
+                coeff = static[attr]
+            elif carrier_attr in n.c.carriers.static:
+                carriers = n.c.carriers.static[carrier_attr]
+                coeff = static.carrier.map(carriers).fillna(0.0).astype(float)
+            else:
+                continue
+            coeff = coeff[coeff != 0]
+            if coeff.empty:
+                continue
+            var = m[var_name].sel(name=coeff.index.to_list(), snapshot=snapshots)
+            terms.append((var * DataArray(coeff.rename_axis("name"))).sum("name"))
+
+        if not terms:
+            logger.warning(
+                "Global constraint %s of type %s has no contributing components and "
+                "is skipped.",
+                name,
+                glc.type,
+            )
+            continue
+
+        sign = "=" if glc.sense == "==" else glc.sense
+        m.add_constraints(
+            merge(terms), sign, glc.constant, name=f"GlobalConstraint-{name}"
+        )
+
+
+def assign_system_strength_duals(n: Network, sns: pd.Index) -> None:
+    """Assign shadow prices of inertia and short-circuit power requirements.
+
+    The duals are written per snapshot to `n.c.global_constraints.dynamic.mu_snapshot`.
+    They are only available for continuous (LP) problems.
+    """
+    glcs = n.c.global_constraints.static
+    glcs = glcs[glcs.type.isin(SYSTEM_STRENGTH_TYPES)]
+    if glcs.empty or n.has_scenarios:
+        return
+    m = n.model
+    duals = {}
+    for name in glcs.index:
+        key = f"GlobalConstraint-{name}"
+        if key not in m.constraints:
+            continue
+        try:
+            dual = m.constraints[key].dual
+        except (AttributeError, ValueError):
+            continue
+        if dual is None or not dual.size:
+            continue
+        duals[name] = dual.to_pandas()
+    if not duals:
+        return
+    df = pd.DataFrame(duals)
+    df.index.name = "snapshot"
+    df.columns.name = "name"
+    c = n.c.global_constraints
+    current = c.dynamic.get("mu_snapshot", pd.DataFrame())
+    if not current.empty:
+        df = df.combine_first(current)
+    c.dynamic["mu_snapshot"] = df.reindex(n.snapshots)

@@ -1,0 +1,3 @@
+name,f_nom,s_nom0,s_nom1,s_nom2,v_nom_0,v_nom_1,v_nom_2,vsc01,vsc12,vsc02,vscr01,vscr12,vscr02,pfe,i0,phase_shift1,phase_shift2,tap_side,tap_neutral,tap_min,tap_max,tap_step,references
+63/25/38 MVA 110/20/10 kV,50.,63,25,38,110,20,10,10.4,10.4,10.4,0.28,0.32,0.35,35,0.89,0,0,0,0,-10,10,1.2,pandapower
+63/25/38 MVA 110/10/10 kV,50.,63,25,38,110,10,10,10.4,10.4,10.4,0.28,0.32,0.35,35,0.89,0,0,0,0,-10,10,1.2,pandapower

@@ -1,0 +1,17 @@
+attribute,type,unit,default,description,status
+name,string,n/a,n/a,Unique name,Input (required)
+component,string,n/a,Line,"Branch component the breaker is attached to, must be ""Line"" or ""Transformer"".",Input (required)
+branch,string,n/a,n/a,Name of the line or transformer the breaker is attached to. At most one active breaker per branch.,Input (required)
+carrier,string,n/a,n/a,Carrier of the circuit breaker.,Input (optional)
+status,static or series,n/a,1,"Fixed status of the breaker (1 closed, 0 open). An open breaker takes its branch out of power flow and optimisation in that snapshot. Ignored in optimisation if `switchable=True`.",Input (optional)
+switchable,boolean,n/a,False,"Switch to let the optimisation decide the status in each snapshot (binary variables, optimal transmission switching).",Input (optional)
+status_initial,float,n/a,1,"Status before the first optimised snapshot, used for the switching costs of a switchable breaker.",Input (optional)
+switching_cost,static or series,currency,0,Cost per switching operation (opening or closing) of a switchable breaker.,Input (optional)
+v_ang_max_open,float,Degrees,180,"Maximum voltage angle difference across an open breaker. Bounds the big-M relaxation of Kirchhoff's voltage law for the open branch, so it must not cut off realistic angle differences.",Input (optional)
+extendable,boolean,n/a,False,"Switch to let the optimisation decide whether to install a switchable breaker (binary variable). A branch can only be opened if the breaker is installed.",Input (optional)
+capital_cost,float,currency,0,Fixed period costs of installing the breaker (e.g. annuitized investment costs). Only used if `extendable=True`.,Input (optional)
+active,boolean,n/a,True,"Whether to consider the component or not",Input (optional)
+status_opt,series,n/a,1,"Status of the breaker (1 closed, 0 open) in the optimisation.",Output
+installed_opt,float,n/a,1,"Whether the breaker is installed (1) or not (0) in the optimisation. Only optimised if `extendable=True`.",Output
+switch,series,n/a,0,"Whether the breaker switched in the snapshot (1 is yes, 0 is no). Only returned if `switchable=True`.",Output
+v_ang_open,series,rad,0,"Voltage angle difference across the open breaker, net of the phase shift of a transformer, in the optimisation.",Output

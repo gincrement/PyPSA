@@ -1202,8 +1202,15 @@ class NetworkIndexMixin(_NetworkABC):
             - self.one_port_components
             - self.branch_components
         )
-        for c in rest_components - {"Bus", "SubNetwork"}:
+        for c in rest_components - {"Bus", "SubNetwork", "Transformer3W"}:
             n.add(c, self.components[c].static.index, **self.components[c].static)
+
+        static = pd.DataFrame(
+            self.c.transformers3w.static.loc[
+                lambda df: df[["bus0", "bus1", "bus2"]].isin(buses_i).all(axis=1)
+            ]
+        )
+        n.add("Transformer3W", static.index, **static)
 
         for c in self.standard_type_components:
             static = pd.DataFrame(

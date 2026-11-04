@@ -569,7 +569,13 @@ class NetworkTransformMixin(_NetworkABC):
             Merged network, or None if inplace=True
 
         """
-        to_skip = {"Network", "SubNetwork", "LineType", "TransformerType"}
+        to_skip = {
+            "Network",
+            "SubNetwork",
+            "LineType",
+            "TransformerType",
+            "Transformer3WType",
+        }
         if components_to_skip:
             to_skip.update(components_to_skip)
         to_iterate = other.all_components - to_skip

@@ -491,8 +491,9 @@ class NetworkCollection:
 
 _all_components = (
     r"sub_networks|buses|carriers|global_constraints|lines|line_types|"
-    r"transformers|transformer_types|links|processes|loads|generators|"
-    r"storage_units|stores|shunt_impedances|shapes"
+    r"transformers|transformer_types|transformers3w|transformer3w_types|links|processes|loads|generators|"
+    r"storage_units|stores|shunt_impedances|shapes|synchronous_condensers|"
+    r"circuit_breakers"
 )
 
 
@@ -500,8 +501,8 @@ def _get_method_patterns() -> dict[str, str]:
     new_api = options.api.new_components_api
     _all_component_names = (
         r"SubNetwork|Bus|Carrier|GlobalConstraint|Line|LineType|"
-        "Transformer|TransformerType|Link|Process|Load|Generator|"
-        "StorageUnit|Store|ShuntImpedance|Shape"
+        "Transformer|TransformerType|Transformer3W|Transformer3WType|Link|Process|Load|Generator|"
+        "StorageUnit|Store|ShuntImpedance|Shape|SynchronousCondenser|CircuitBreaker"
     )
 
     _component_classes = (

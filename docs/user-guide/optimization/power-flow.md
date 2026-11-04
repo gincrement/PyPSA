@@ -93,6 +93,55 @@ The variables are set in `define_phase_shift_variables()` and carry the name
     convention used in Verboomen et al. (2008)[^4], i.e.
     $\alpha^{PyPSA} = -\alpha^{Verboomen}$.
 
+### Cost of phase shifting
+
+With a non-zero `phase_shift_cost` (currency per degree and hour), shifting the
+phase is not free. The absolute phase shift $|\alpha_{l,t}|$ is represented by
+the auxiliary variable `Transformer-phase_shift_abs` and priced in the objective:
+
+$$\sum_{l,t} w_t \, c^{ps}_{l,t} \, |\alpha_{l,t}|$$
+
+This keeps the shift at zero unless it relieves congestion, e.g. to represent
+the wear of the tap changer. PSTs are expanded like other transformers with
+`s_nom_extendable`; the controllable shift then lets them carry only the flow
+that the parallel branches cannot.
+
+### Power flow after optimisation
+
+[`n.optimize.fix_optimal_dispatch()`][pypsa.optimization.OptimizationAccessor.fix_optimal_dispatch]
+copies the optimised `phase_shift_opt` to the time-varying `phase_shift` and
+fixes the shift range (`phase_shift_min = phase_shift_max = 0`), so that
+[`n.lpf()`][pypsa.Network.lpf] and [`n.pf()`][pypsa.Network.pf] reproduce the
+optimised flows. Both power flows use a time-varying `phase_shift` by solving
+each group of snapshots with the same phase shifts separately.
+
+## Optimal Transmission Switching
+
+[Circuit breakers](../components/circuit-breakers.md) open and close lines and
+transformers. An open branch $l$ carries no flow and is exempt from Kirchhoff's
+voltage law. With the breaker status $u_{l,t} \in \{0, 1\}$, a fixed input or
+a binary decision for `switchable` breakers, the flow is bounded by
+
+$$-\bar{s}_l u_{l,t} \leq p_{l,t} \leq \bar{s}_l u_{l,t}$$
+
+where $\bar{s}_l$ is `s_nom` (or `s_nom_max` for extendable branches) times the
+maximum of `s_max_pu`. The cycle constraints are relaxed by the voltage angle
+difference $\delta_{l,t}$ across the open breaker (output `v_ang_open`), which
+is limited by a big-M of `v_ang_max_open`:
+
+$$\sum_l C_{l,c} \left( x_l p_{l,t} + \alpha_{l,t} + \delta_{l,t} \right) = 0, \qquad
+-M_l (1 - u_{l,t}) \leq \delta_{l,t} \leq M_l (1 - u_{l,t})$$
+
+An `extendable` breaker can only open once installed ($u_{l,t} \geq 1 - i_l$,
+with the binary `installed_opt` $i_l$ priced at `capital_cost`), and switching
+operations $w_{l,t} \geq |u_{l,t} - u_{l,t-1}|$ are priced at `switching_cost`,
+starting from `status_initial`.
+
+!!! note
+
+    Switchable breakers turn the problem into a mixed-integer linear programme.
+    The voltage angles computed after the optimisation assume all branches closed.
+
 ## Linear Loss Approximation
 
 The AC transmission losses $\psi_{l,t}$ for line $l$ at timestep $t$ are given by the loss parabola

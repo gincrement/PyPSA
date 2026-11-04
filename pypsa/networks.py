@@ -1174,7 +1174,7 @@ class Network(
                   5       True  0.0   0.0  ...  0.238800  0.000002  0.000002
                   6       True  0.0   0.0  ...  0.400000  0.000003  0.000003
         <BLANKLINE>
-        [7 rows x 44 columns]
+        [7 rows x 45 columns]
 
         """
         comps = sorted(

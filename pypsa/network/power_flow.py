@@ -27,6 +27,10 @@ from pypsa.common import (
     as_index,
     deprecated_common_kwargs,
 )
+from pypsa.components._types.transformers3w import (
+    _assign_transformer3w_results,
+    _warn_unexpanded_transformers3w,
+)
 from pypsa.definitions.structures import Dict
 from pypsa.descriptors import _update_ports_component_attrs
 from pypsa.network.abstract import _NetworkABC
@@ -82,6 +86,7 @@ def _allocate_pf_outputs(n: Network, linear: bool = False) -> None:
         "StorageUnit": ["p"],
         "Store": ["p"],
         "ShuntImpedance": ["p"],
+        "SynchronousCondenser": ["p"],
         "Bus": ["p", "v_ang", "v_mag_pu"],
         **{c: ["p" + port for port in n.c[c].ports] for c in n.branch_components},
     }
@@ -145,9 +150,173 @@ def _calculate_controllable_nodal_power_balance(
             )
 
 
+def _pv_synchronous_condensers(sub_network: SubNetwork) -> pd.DataFrame:
+    """Active synchronous condensers with voltage control in the sub-network."""
+    if sub_network.n.has_scenarios:
+        # power flow does not support stochastic networks
+        return sub_network.n.c.synchronous_condensers.static.iloc[:0]
+    static = sub_network.c.synchronous_condensers.static
+    return static[(static.control == "PV") & static.active]
+
+
+def _share_reactive_power(
+    n: Network,
+    sub_network: SubNetwork,
+    syncons: pd.DataFrame,
+    dq: pd.DataFrame,
+) -> None:
+    """Share the reactive power of voltage controlled buses among their devices.
+
+    The reactive power at the slack and PV buses is shared between the bus's
+    controlling generator (weighted by `p_nom`) and its voltage controlling
+    synchronous condensers (weighted by `s_nom`). Without any rating, it is split
+    evenly.
+    """
+    gens = n.c.generators.static
+    for bus in dq.columns:
+        gen = n.c.buses.static.at[bus, "generator"]
+        if bus == sub_network.slack_bus:
+            gen = sub_network.slack_generator
+        devices = []
+        if isinstance(gen, str) and gen:
+            devices.append(("Generator", gen, float(gens.at[gen, "p_nom"])))
+        for name, row in syncons[syncons.bus == bus].iterrows():
+            devices.append(("SynchronousCondenser", str(name), float(row.s_nom)))
+        if not devices:
+            continue
+        weights = np.array([w for *_, w in devices])
+        if weights.sum() <= 0:
+            weights = np.ones(len(devices))
+        weights = weights / weights.sum()
+        for (comp, name, _), w in zip(devices, weights, strict=True):
+            n.c[comp].dynamic.q.loc[dq.index, name] += dq[bus].to_numpy() * w
+
+
+def _pf_states(n: Network, sns: pd.Index) -> list[tuple[pd.Index, dict]]:
+    """Group snapshots by time-varying phase shifts and circuit breaker status.
+
+    Returns a list of (snapshots, overrides) where overrides holds the static
+    `phase_shift` of transformers and the branches opened by circuit breakers in
+    these snapshots. An empty list means that no snapshot needs overrides.
+    """
+    # Avoid circular import
+    from pypsa.optimization.grid_controls import (  # noqa: PLC0415
+        active_circuit_breakers,
+    )
+
+    parts = {}
+    transformers = n.c.transformers
+    phase_shift = transformers.dynamic.get("phase_shift", pd.DataFrame())
+    if not transformers.empty and not phase_shift.empty:
+        cols = phase_shift.columns.intersection(transformers.static.index)
+        if not cols.empty:
+            parts["phase_shift"] = phase_shift.loc[sns, cols].astype(float)
+
+    breakers = active_circuit_breakers(n)
+    if not breakers.empty:
+        status = n.get_switchable_as_dense(
+            "CircuitBreaker", "status", sns, inds=breakers.index
+        )
+        if (status != 1).any(axis=None):
+            parts["status"] = status.astype(float)
+
+    if not parts:
+        return []
+
+    state = pd.concat(parts, axis=1)
+    keys = pd.Series(
+        [tuple(row) for row in state.round(10).to_numpy()], index=state.index
+    )
+    groups = []
+    for _, group in keys.groupby(keys, sort=False):
+        group_sns = sns[sns.isin(group.index)]
+        row = state.loc[group_sns[0]]
+        overrides: dict = {}
+        if "phase_shift" in parts:
+            overrides["phase_shift"] = row["phase_shift"]
+        if "status" in parts:
+            open_b = row["status"].index[row["status"] != 1]
+            overrides["open"] = breakers.loc[open_b, ["component", "branch"]]
+        groups.append((group_sns, overrides))
+    return groups
+
+
 def _network_prepare_and_run_pf(
     n: Network,
     snapshots: Sequence | None,
+    skip_pre: bool,
+    linear: bool = False,
+    distribute_slack: bool = False,
+    slack_weights: str = "p_set",
+    **kwargs: Any,
+) -> Dict | None:
+    """Run the power flow, per group of snapshots with the same grid state.
+
+    Snapshots with different time-varying transformer phase shifts or circuit
+    breaker status are solved separately, with the topology and admittances of
+    their state.
+    """
+    sns = as_index(n, snapshots, "snapshots")
+    states = _pf_states(n, sns)
+    if not states:
+        return _run_pf_single_state(
+            n, sns, skip_pre, linear, distribute_slack, slack_weights, **kwargs
+        )
+
+    transformers = n.c.transformers.static
+    phase_shift_orig = transformers["phase_shift"].copy()
+    active_orig = {c: n.c[c].static["active"].copy() for c in ("Line", "Transformer")}
+    results = []
+    try:
+        for state_sns, overrides in states:
+            if "phase_shift" in overrides:
+                ps = overrides["phase_shift"]
+                transformers.loc[ps.index, "phase_shift"] = ps.to_numpy()
+            opened = overrides.get("open", pd.DataFrame(columns=["component"]))
+            for comp, group in opened.groupby("component"):
+                n.c[comp].static.loc[group.branch, "active"] = False
+
+            results.append(
+                _run_pf_single_state(
+                    n,
+                    state_sns,
+                    False,
+                    linear,
+                    distribute_slack,
+                    slack_weights,
+                    **kwargs,
+                )
+            )
+
+            # open branches carry no flow
+            for comp, group in opened.groupby("component"):
+                for attr in ("p0", "p1", "q0", "q1"):
+                    dynamic = n.c[comp].dynamic
+                    if attr in dynamic and not dynamic[attr].empty:
+                        dynamic[attr].loc[state_sns, group.branch] = 0.0
+
+            transformers["phase_shift"] = phase_shift_orig
+            for comp, active in active_orig.items():
+                n.c[comp].static["active"] = active
+    finally:
+        transformers["phase_shift"] = phase_shift_orig
+        for comp, active in active_orig.items():
+            n.c[comp].static["active"] = active
+        n.determine_network_topology()
+
+    if linear:
+        return None
+    return Dict(
+        {
+            key: pd.concat([r[key] for r in results]).reindex(sns)  # type: ignore[index]
+            for key in ("n_iter", "error", "converged")
+        }
+    )
+
+
+def _run_pf_single_state(
+    n: Network,
+    snapshots: Sequence | pd.Index | None,
     skip_pre: bool,
     linear: bool = False,
     distribute_slack: bool = False,
@@ -240,6 +409,9 @@ def _network_prepare_and_run_pf(
                 slack_weights=sn_slack_weights,
                 **kwargs,
             )
+
+    _assign_transformer3w_results(n)
+
     if not linear:
         return Dict({"n_iter": itdf, "error": difdf, "converged": cnvdf})
     return None
@@ -800,6 +972,8 @@ class NetworkPowerFlowMixin(_NetworkABC):
         apply_line_types(self)
 
         apply_transformer_types(self)
+
+        _warn_unexpanded_transformers3w(self)  # type: ignore[arg-type]
 
         buses = self.c.buses.static
 
@@ -1375,6 +1549,13 @@ class SubNetworkPowerFlowMixin:
             n.c.buses.static.loc[pvs.index, "control"] = "PV"
             n.c.buses.static.loc[pvs.index, "generator"] = pvs
 
+        # synchronous condensers with voltage control also make their bus PV
+        sc_buses = _pv_synchronous_condensers(self).bus.unique()
+        sc_only = pd.Index(sc_buses).difference(pvs.index if len(pvs) else [])
+        if not sc_only.empty:
+            n.c.buses.static.loc[sc_only, "control"] = "PV"
+            n.c.buses.static.loc[sc_only, "generator"] = ""
+
         is_slack_bus = n.c.buses.static.index.get_level_values("name") == self.slack_bus
         n.c.buses.static.loc[is_slack_bus, "control"] = "Slack"
         n.c.buses.static.loc[is_slack_bus, "generator"] = (
@@ -1790,16 +1971,26 @@ class SubNetworkPowerFlowMixin:
                 n.c.buses.dynamic.p.loc[sns, self.slack_bus] - ss[:, slack_index].real
             )
 
-        # set the Q of the slack and PV generators
-        n.c.generators.dynamic.q.loc[sns, self.slack_generator] += (
-            n.c.buses.dynamic.q.loc[sns, self.slack_bus] - ss[:, slack_index].imag
-        )
+        # set the Q of the slack and PV generators (and voltage controlling
+        # synchronous condensers)
+        syncons = _pv_synchronous_condensers(self)
+        if syncons.empty:
+            n.c.generators.dynamic.q.loc[sns, self.slack_generator] += (
+                n.c.buses.dynamic.q.loc[sns, self.slack_bus] - ss[:, slack_index].imag
+            )
 
-        n.c.generators.dynamic.q.loc[
-            sns, n.c.buses.static.loc[self.pvs, "generator"]
-        ] += np.asarray(
-            n.c.buses.dynamic.q.loc[sns, self.pvs] - ss[:, buses_indexer(self.pvs)].imag
-        )
+            n.c.generators.dynamic.q.loc[
+                sns, n.c.buses.static.loc[self.pvs, "generator"]
+            ] += np.asarray(
+                n.c.buses.dynamic.q.loc[sns, self.pvs]
+                - ss[:, buses_indexer(self.pvs)].imag
+            )
+        else:
+            controlled = self.pvs.insert(0, self.slack_bus)
+            dq = n.c.buses.dynamic.q.loc[sns, controlled] - pd.DataFrame(
+                ss[:, buses_indexer(controlled)].imag, index=sns, columns=controlled
+            )
+            _share_reactive_power(n, self, syncons, dq)
 
         return iters, diffs, convs
 

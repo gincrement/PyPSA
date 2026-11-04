@@ -35,6 +35,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 
 import pypsa
@@ -338,3 +339,110 @@ class TestLOPFMatchesLinearPowerFlow:
         np.testing.assert_allclose(
             check.lines_t.p0["L1"].values, lopf_L1.values, atol=1e-2
         )
+
+
+class TestPhaseShiftCost:
+    """Costs of controllable phase-shifting transformers."""
+
+    @staticmethod
+    def _congested(cost: float = 0.0, line_s_nom: float = 20.0) -> pypsa.Network:
+        n = _build(variable=True, phase_shift_min=-40.0, phase_shift_max=40.0)
+        n.c.lines.static.loc["L1", "s_nom"] = line_s_nom
+        n.c.transformers.static.loc["T1", "phase_shift_cost"] = cost
+        return n
+
+    def test_cost_yields_minimal_shift(self):
+        """Pushing 30 of 50 MW over T1 needs P_L - P_T = -10 = phi / x_pu."""
+        n = self._congested(cost=1.0)
+        n.optimize(solver_name="highs")
+
+        expected = np.rad2deg(-10.0 * 0.01)
+        shift = n.c.transformers.dynamic.phase_shift_opt["T1"]
+        np.testing.assert_allclose(shift, expected, atol=1e-4)
+        np.testing.assert_allclose(n.c.lines.dynamic.p0["L1"], 20.0, atol=1e-4)
+        # dispatch cost plus cost of the absolute shift
+        assert n.objective == pytest.approx(2 * (50 * 10.0 + abs(expected)), rel=1e-6)
+
+    def test_cost_keeps_uncongested_shift_at_zero(self):
+        n = self._congested(cost=1.0, line_s_nom=100.0)
+        n.optimize(solver_name="highs")
+        np.testing.assert_allclose(
+            n.c.transformers.dynamic.phase_shift_opt["T1"], 0.0, atol=1e-6
+        )
+
+    def test_absolute_shift_not_written_to_network(self):
+        n = self._congested(cost=1.0)
+        n.optimize(solver_name="highs")
+        assert "Transformer-phase_shift_abs" in n.model.variables
+        assert "phase_shift_abs" not in n.c.transformers.dynamic
+
+    def test_negative_cost_raises(self):
+        n = self._congested(cost=-1.0)
+        with pytest.raises(ValueError, match="phase_shift_cost"):
+            n.optimize(solver_name="highs")
+
+    def test_no_cost_no_auxiliary_variable(self):
+        n = self._congested()
+        n.optimize(solver_name="highs")
+        assert "Transformer-phase_shift_abs" not in n.model.variables
+
+
+class TestPhaseShiftingTransformerExpansion:
+    def test_shift_reduces_expansion(self):
+        """With a controllable shift, T1 only needs to carry what L1 cannot."""
+        results = {}
+        for variable in (False, True):
+            n = _build(variable=variable, phase_shift_min=-40.0, phase_shift_max=40.0)
+            n.c.loads.dynamic.p_set.loc[:, "load_B"] = 150.0
+            n.c.generators.static.loc["gen_A", "p_nom"] = 500.0
+            n.c.transformers.static.loc["T1", ["s_nom_extendable", "capital_cost"]] = [
+                True,
+                1.0,
+            ]
+            n.optimize(solver_name="highs")
+            results[variable] = n.c.transformers.static.at["T1", "s_nom_opt"]
+        # equal split without shift, line used up to its limit with shift
+        assert results[False] == pytest.approx(75.0)
+        assert results[True] == pytest.approx(50.0)
+
+
+class TestTimeVaryingPhaseShiftInPowerFlow:
+    def test_lpf_uses_time_varying_phase_shift(self):
+        shifts = [0.0, 5.0, -5.0]
+        n = _build()
+        n.set_snapshots(range(3))
+        n.c.loads.dynamic.p_set = pd.DataFrame({"load_B": 50.0}, index=n.snapshots)
+        n.c.generators.dynamic.p_set = pd.DataFrame({"gen_A": 50.0}, index=n.snapshots)
+        n.c.transformers.dynamic.phase_shift = pd.DataFrame(
+            {"T1": shifts}, index=n.snapshots
+        )
+        n.lpf()
+
+        for sn, shift in zip(n.snapshots, shifts, strict=True):
+            ref = _build(phase_shift=shift)
+            ref.c.generators.static.loc["gen_A", "p_set"] = 50.0
+            ref.lpf(snapshots=ref.snapshots[:1])
+            assert n.c.transformers.dynamic.p0.at[sn, "T1"] == pytest.approx(
+                ref.c.transformers.dynamic.p0.iloc[0]["T1"], abs=1e-6
+            )
+        # the static input is restored
+        assert n.c.transformers.static.at["T1", "phase_shift"] == 0.0
+
+    def test_fix_optimal_dispatch_reproduces_flows(self):
+        n = _build(variable=True, phase_shift_min=-40.0, phase_shift_max=40.0)
+        n.c.lines.static.loc["L1", "s_nom"] = 20.0
+        n.c.loads.dynamic.p_set = pd.DataFrame(
+            {"load_B": [40.0, 50.0]}, index=n.snapshots
+        )
+        n.optimize(solver_name="highs")
+        flows = n.c.lines.dynamic.p0["L1"].copy()
+
+        n.optimize.fix_optimal_dispatch()
+        static = n.c.transformers.static.loc["T1"]
+        assert static.phase_shift_min == static.phase_shift_max == 0.0
+        np.testing.assert_allclose(
+            n.c.transformers.dynamic.phase_shift["T1"],
+            n.c.transformers.dynamic.phase_shift_opt["T1"],
+        )
+        n.lpf()
+        np.testing.assert_allclose(n.c.lines.dynamic.p0["L1"], flows, atol=1e-4)

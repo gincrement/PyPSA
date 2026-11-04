@@ -63,6 +63,7 @@ class ComponentsDescriptorsMixin(_ComponentsABC):
             "Process": "p",
             "StorageUnit": "p",
             "Store": "e",
+            "SynchronousCondenser": "s",
             "Transformer": "s",
         }[self.name]
 

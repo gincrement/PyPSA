@@ -264,6 +264,66 @@ class NetworkComponentsMixin(_NetworkABC):
         self.c.transformer_types.static = value
 
     @property
+    def transformers3w(self) -> Any:
+        """Access to static data of [pypsa.components.Transformers3W][]."""
+        return (
+            self.c.transformers3w.static
+            if not options.api.new_components_api
+            else self.c.transformers3w
+        )
+
+    @transformers3w.setter
+    def transformers3w(self, value: pd.DataFrame) -> None:
+        if options.api.new_components_api:
+            raise AttributeError(_STATIC_SETTER_WARNING)
+        self.c.transformers3w.static = value
+
+    @property
+    def transformer3w_types(self) -> Any:
+        """Access to static data of [pypsa.components.Transformer3WTypes][]."""
+        return (
+            self.c.transformer3w_types.static
+            if not options.api.new_components_api
+            else self.c.transformer3w_types
+        )
+
+    @transformer3w_types.setter
+    def transformer3w_types(self, value: pd.DataFrame) -> None:
+        if options.api.new_components_api:
+            raise AttributeError(_STATIC_SETTER_WARNING)
+        self.c.transformer3w_types.static = value
+
+    @property
+    def synchronous_condensers(self) -> Any:
+        """Access to static data of [pypsa.components.SynchronousCondensers][]."""
+        return (
+            self.c.synchronous_condensers.static
+            if not options.api.new_components_api
+            else self.c.synchronous_condensers
+        )
+
+    @synchronous_condensers.setter
+    def synchronous_condensers(self, value: pd.DataFrame) -> None:
+        if options.api.new_components_api:
+            raise AttributeError(_STATIC_SETTER_WARNING)
+        self.c.synchronous_condensers.static = value
+
+    @property
+    def circuit_breakers(self) -> Any:
+        """Access to static data of [pypsa.components.CircuitBreakers][]."""
+        return (
+            self.c.circuit_breakers.static
+            if not options.api.new_components_api
+            else self.c.circuit_breakers
+        )
+
+    @circuit_breakers.setter
+    def circuit_breakers(self, value: pd.DataFrame) -> None:
+        if options.api.new_components_api:
+            raise AttributeError(_STATIC_SETTER_WARNING)
+        self.c.circuit_breakers.static = value
+
+    @property
     def links(self) -> Any:
         """Access to static data of [pypsa.components.Links][]."""
         return (
@@ -713,10 +773,10 @@ class NetworkComponentsMixin(_NetworkABC):
         Examples
         --------
         >>> sorted(n.controllable_one_port_components)
-        ['Generator', 'Load', 'StorageUnit', 'Store']
+        ['Generator', 'Load', 'StorageUnit', 'Store', 'SynchronousCondenser']
 
         """
-        return {"StorageUnit", "Store", "Generator", "Load"}
+        return {"StorageUnit", "Store", "Generator", "Load", "SynchronousCondenser"}
 
     @property
     def passive_branch_components(self) -> set[str]:
@@ -749,10 +809,10 @@ class NetworkComponentsMixin(_NetworkABC):
         Examples
         --------
         >>> sorted(n.standard_type_components)
-        ['LineType', 'TransformerType']
+        ['LineType', 'Transformer3WType', 'TransformerType']
 
         """
-        return {"LineType", "TransformerType"}
+        return {"LineType", "TransformerType", "Transformer3WType"}
 
     @property
     def one_port_components(self) -> set[str]:
@@ -761,7 +821,7 @@ class NetworkComponentsMixin(_NetworkABC):
         Examples
         --------
         >>> sorted(n.one_port_components)
-        ['Generator', 'Load', 'ShuntImpedance', 'StorageUnit', 'Store']
+        ['Generator', 'Load', 'ShuntImpedance', 'StorageUnit', 'Store', 'SynchronousCondenser']
 
         """
         return self.passive_one_port_components | self.controllable_one_port_components
@@ -785,7 +845,7 @@ class NetworkComponentsMixin(_NetworkABC):
         Examples
         --------
         >>> sorted(n.all_components)
-        ['Bus', 'Carrier', 'Generator', 'GlobalConstraint', 'Line', 'LineType', 'Link', 'Load', 'Process', 'Shape', 'ShuntImpedance', 'StorageUnit', 'Store', 'SubNetwork', 'Transformer', 'TransformerType']
+        ['Bus', 'Carrier', 'CircuitBreaker', 'Generator', 'GlobalConstraint', 'Line', 'LineType', 'Link', 'Load', 'Process', 'Shape', 'ShuntImpedance', 'StorageUnit', 'Store', 'SubNetwork', 'SynchronousCondenser', 'Transformer', 'Transformer3W', 'Transformer3WType', 'TransformerType']
 
         """
         return {
@@ -801,6 +861,10 @@ class NetworkComponentsMixin(_NetworkABC):
             "GlobalConstraint",
             "SubNetwork",
             "TransformerType",
+            "Transformer3W",
+            "Transformer3WType",
+            "SynchronousCondenser",
+            "CircuitBreaker",
             "LineType",
             "Bus",
             "Load",

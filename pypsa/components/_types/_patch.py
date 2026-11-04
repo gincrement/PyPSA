@@ -103,7 +103,9 @@ def patch_add_docstring(cls: type[_T]) -> type[_T]:
     def _camel_to_snake(name: str) -> str:
         return re.sub(r"(?<!^)([A-Z])", r"_\1", name).lower()
 
-    component_name = _camel_to_snake(cls.__name__)
+    # Classes whose name does not map to the list name via snake case (e.g.
+    # 'Transformers3W') declare it explicitly
+    component_name = getattr(cls, "_list_name", None) or _camel_to_snake(cls.__name__)
 
     component_parameters_string = create_docstring_parameters(component_name)
     add.__doc__ = original_doc.replace(to_be_replaced, component_parameters_string)

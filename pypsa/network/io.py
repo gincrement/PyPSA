@@ -2644,8 +2644,11 @@ class NetworkIOMixin(_NetworkABC):
         Importing from pandapower is still in beta;
         not all pandapower components are supported.
 
+        Three-winding transformers are imported as
+        [pypsa.components.Transformers3W][] and expanded into their star equivalent
+        (see [`expand`][pypsa.components.Transformers3W.expand]).
+
         Unsupported features include:
-        - three-winding transformers
         - switches
         - in_service status and
         - tap positions of transformers
@@ -2673,7 +2676,7 @@ class NetworkIOMixin(_NetworkABC):
 
         """
         logger.warning(
-            "Warning: Importing from pandapower is still in beta; not all pandapower data is supported.\nUnsupported features include: three-winding transformers, switches, in_service status, shunt impedances and tap positions of transformers."
+            "Warning: Importing from pandapower is still in beta; not all pandapower data is supported.\nUnsupported features include: switches, in_service status, shunt impedances and tap positions of transformers."
         )
 
         d = {
@@ -2788,18 +2791,14 @@ class NetworkIOMixin(_NetworkABC):
             s_nom = net.trafo.sn_mva.values
 
             # documented at https://pandapower.readthedocs.io/en/develop/elements/trafo.html?highlight=transformer#impedance-values
-            z = net.trafo.vk_percent.values / 100.0 / net.trafo.sn_mva.values
-            r = net.trafo.vkr_percent.values / 100.0 / net.trafo.sn_mva.values
+            # per unit on base s_nom, as for transformer standard types
+            z = net.trafo.vk_percent.values / 100.0
+            r = net.trafo.vkr_percent.values / 100.0
             x = np.sqrt(z**2 - r**2)
 
             y = net.trafo.i0_percent.values / 100.0
-            g = (
-                net.trafo.pfe_kw.values
-                / net.trafo.sn_mva.values
-                / 1000
-                / net.trafo.sn_mva.values
-            )
-            b = np.sqrt(y**2 - g**2)
+            g = net.trafo.pfe_kw.values / 1000.0 / net.trafo.sn_mva.values
+            b = -np.sqrt(np.clip(y**2 - g**2, 0, None))
 
             d["Transformer"] = pd.DataFrame(
                 {
@@ -2816,6 +2815,75 @@ class NetworkIOMixin(_NetworkABC):
                 index=net.trafo.name,
             )
         d["Transformer"] = d["Transformer"].fillna(0)
+
+        # three-winding transformers
+        trafo3w = net.get("trafo3w", pd.DataFrame())
+        if trafo3w.empty:
+            d["Transformer3W"] = pd.DataFrame()
+        elif trafo3w.std_type.notna().all() and trafo3w.std_type.astype(bool).all():
+            d["Transformer3W"] = pd.DataFrame(
+                {
+                    "type": trafo3w.std_type.values,
+                    "bus0": net.bus.name.loc[trafo3w.hv_bus].values,
+                    "bus1": net.bus.name.loc[trafo3w.mv_bus].values,
+                    "bus2": net.bus.name.loc[trafo3w.lv_bus].values,
+                    "tap_position": trafo3w.tap_pos.fillna(0).values,
+                },
+                index=trafo3w.name,
+            )
+        else:
+            # documented at https://pandapower.readthedocs.io/en/latest/elements/trafo3w.html
+            # short circuit voltages refer to the smaller rating of each winding
+            # pair; rescale them to per unit on base sn_hv_mva
+            sn = {
+                0: trafo3w.sn_hv_mva.values,
+                1: trafo3w.sn_mv_mva.values,
+                2: trafo3w.sn_lv_mva.values,
+            }
+            pairs = {"01": ("hv", 0, 1), "12": ("mv", 1, 2), "02": ("lv", 0, 2)}
+            impedances = {}
+            for pair, (side, i, j) in pairs.items():
+                scale = sn[0] / np.minimum(sn[i], sn[j]) / 100.0
+                z = trafo3w[f"vk_{side}_percent"].values * scale
+                r = trafo3w[f"vkr_{side}_percent"].values * scale
+                impedances[f"r{pair}"] = r
+                impedances[f"x{pair}"] = np.sqrt(z**2 - r**2)
+            g = trafo3w.pfe_kw.values / 1000.0 / sn[0]
+            b = -np.sqrt(
+                np.clip((trafo3w.i0_percent.values / 100.0) ** 2 - g**2, 0, None)
+            )
+            tap_side = (
+                trafo3w.tap_side.map({"hv": 0, "mv": 1, "lv": 2}).fillna(0).values
+            )
+            tap_offset = (trafo3w.tap_pos - trafo3w.tap_neutral).fillna(0)
+            if "tap_changer_type" in trafo3w:
+                # since pandapower 3, taps only apply with a tap changer type
+                has_tap_changer = trafo3w.tap_changer_type.notna() & (
+                    trafo3w.tap_changer_type.astype(str) != ""
+                )
+                tap_offset = tap_offset.where(has_tap_changer, 0)
+            tap_ratio = (
+                1.0
+                + tap_offset.values * trafo3w.tap_step_percent.fillna(0).values / 100.0
+            )
+            d["Transformer3W"] = pd.DataFrame(
+                {
+                    "bus0": net.bus.name.loc[trafo3w.hv_bus].values,
+                    "bus1": net.bus.name.loc[trafo3w.mv_bus].values,
+                    "bus2": net.bus.name.loc[trafo3w.lv_bus].values,
+                    "s_nom0": sn[0],
+                    "s_nom1": sn[1],
+                    "s_nom2": sn[2],
+                    **impedances,
+                    "g": g,
+                    "b": b,
+                    "tap_side": tap_side,
+                    "tap_ratio": tap_ratio,
+                    "phase_shift1": trafo3w.shift_mv_degree.values,
+                    "phase_shift2": trafo3w.shift_lv_degree.values,
+                },
+                index=trafo3w.name,
+            )
 
         # documented at https://docs.pypsa.org/latest/user-guide/components/shunt-impedances
         g_shunt = net.shunt.p_mw.values / net.shunt.vn_kv.values**2
@@ -2837,6 +2905,7 @@ class NetworkIOMixin(_NetworkABC):
             "Generator",
             "Line",
             "Transformer",
+            "Transformer3W",
             "ShuntImpedance",
         ]:
             self.add(component_name, d[component_name].index, **d[component_name])
@@ -2858,8 +2927,13 @@ class NetworkIOMixin(_NetworkABC):
                 continue
             component.static.replace({"bus": to_replace}, inplace=True)
 
-        for component in self.components[["Line", "Transformer"]]:
+        for component in self.components[["Line", "Transformer", "Transformer3W"]]:
             if component.empty:
                 continue
-            component.static.replace({"bus0": to_replace}, inplace=True)
-            component.static.replace({"bus1": to_replace}, inplace=True)
+            for attr in ["bus0", "bus1", "bus2"]:
+                if attr in component.static:
+                    component.static.replace({attr: to_replace}, inplace=True)
+
+        # represent three-winding transformers by their star equivalent
+        if not self.c.transformers3w.empty:
+            self.c.transformers3w.expand()

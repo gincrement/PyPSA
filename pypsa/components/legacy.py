@@ -12,6 +12,7 @@ from pypsa.common import UnexpectedError
 from pypsa.components._types import (
     Buses,
     Carriers,
+    CircuitBreakers,
     Generators,
     GlobalConstraints,
     Lines,
@@ -24,7 +25,10 @@ from pypsa.components._types import (
     StorageUnits,
     Stores,
     SubNetworks,
+    SynchronousCondensers,
+    Transformer3WTypes,
     Transformers,
+    Transformers3W,
     TransformerTypes,
 )
 from pypsa.components.types import get as get_component_type
@@ -56,6 +60,10 @@ _CLASS_MAPPING = {
     "SubNetwork": SubNetworks,
     "Transformer": Transformers,
     "TransformerType": TransformerTypes,
+    "Transformer3W": Transformers3W,
+    "Transformer3WType": Transformer3WTypes,
+    "SynchronousCondenser": SynchronousCondensers,
+    "CircuitBreaker": CircuitBreakers,
 }
 
 

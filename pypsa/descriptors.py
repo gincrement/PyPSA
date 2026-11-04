@@ -79,6 +79,7 @@ nominal_attrs = {
     "Process": "p_nom",
     "Store": "e_nom",
     "StorageUnit": "p_nom",
+    "SynchronousCondenser": "s_nom",
 }
 
 

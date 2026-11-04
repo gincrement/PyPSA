@@ -9,6 +9,7 @@ from typing import Any
 from pypsa.components._types import (
     Buses,
     Carriers,
+    CircuitBreakers,
     Generators,
     GlobalConstraints,
     Lines,
@@ -21,7 +22,10 @@ from pypsa.components._types import (
     StorageUnits,
     Stores,
     SubNetworks,
+    SynchronousCondensers,
+    Transformer3WTypes,
     Transformers,
+    Transformers3W,
     TransformerTypes,
 )
 from pypsa.components.components import Components
@@ -43,6 +47,7 @@ __all__ = [
     "Components",
     "Buses",
     "Carriers",
+    "CircuitBreakers",
     "Generators",
     "GlobalConstraints",
     "LineTypes",
@@ -54,7 +59,10 @@ __all__ = [
     "ShuntImpedances",
     "StorageUnits",
     "Stores",
+    "SynchronousCondensers",
     "Processes",
+    "Transformer3WTypes",
+    "Transformers3W",
     "TransformerTypes",
     "Transformers",
 ]

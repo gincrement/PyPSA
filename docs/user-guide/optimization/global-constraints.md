@@ -177,3 +177,44 @@ This global constraint is added in the function `define_growth_limit()` and carr
     | $P_l$  | `n.{lines,transformers}.s_nom_opt` | Decision Variable |#
     | $\gamma_s$ | `n.carriers.max_relative_growth` | Parameter |
     | $\Gamma_s$ | `n.carriers.max_growth` | Parameter |
+
+## System Strength
+
+Global constraints of type `inertia` and `short_circuit_power` set minimum
+requirements for inertia (MWs) and short-circuit power (MVA) in every snapshot.
+[Synchronous condensers](../components/synchronous-condensers.md) contribute
+their online capacity $s_{k,t}$ times `inertia_constant` $H_k$ or
+`short_circuit_factor`. Generators contribute their dispatch $p_{g,t}$ times the
+column `inertia_constant` or `short_circuit_factor` of `n.carriers`, if it
+exists:
+
+$$\sum_{k} H_k s_{k,t} + \sum_g H_{c(g)} p_{g,t} \geq \text{constant} \quad \forall t$$
+
+If `bus` is set, only components at this bus count; otherwise all buses do,
+e.g. for a requirement of a synchronous area. If `investment_period` is set, the
+requirement only applies to the snapshots of that period. The shadow prices are
+written per snapshot to `n.c.global_constraints.dynamic.mu_snapshot`.
+
+``` py
+>>> n = pypsa.Network()
+>>> n.add("Bus", "bus")
+>>> n.add("Generator", "gen", bus="bus", p_nom=100, marginal_cost=10)
+>>> n.add("Load", "load", bus="bus", p_set=50)
+>>> n.add(
+...     "SynchronousCondenser",
+...     "syncon",
+...     bus="bus",
+...     s_nom_extendable=True,
+...     capital_cost=5,
+...     loss=0.01,
+...     inertia_constant=2,
+... )
+>>> n.add("GlobalConstraint", "inertia", type="inertia", sense=">=", constant=100)
+>>> n.optimize()  # doctest: +ELLIPSIS
+('ok', 'optimal')
+>>> n.c.synchronous_condensers.static.s_nom_opt
+name
+syncon    50.0
+Name: s_nom_opt, dtype: float64
+
+```
